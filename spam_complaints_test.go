@@ -6,48 +6,53 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/facebookgo/ensure"
-	"github.com/mailgun/mailgun-go/v4"
+	"github.com/mailgun/mailgun-go/v5"
+	"github.com/mailgun/mailgun-go/v5/mtypes"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetComplaints(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
 
 	ctx := context.Background()
 
-	it := mg.ListComplaints(nil)
-	var page []mailgun.Complaint
+	it := mg.ListComplaints(testDomain, nil)
+	var page []mtypes.Complaint
 	for it.Next(ctx, &page) {
-		//spew.Dump(page)
 	}
-	ensure.Nil(t, it.Err())
+	require.NoError(t, it.Err())
 }
 
 func TestGetComplaintFromRandomNoComplaint(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
-	_, err := mg.GetComplaint(ctx, randomString(64, "")+"@example.com")
-	ensure.NotNil(t, err)
+	_, err = mg.GetComplaint(ctx, testDomain, randomString(64, "")+"@example.com")
+	require.NotNil(t, err)
 
-	ure, ok := err.(*mailgun.UnexpectedResponseError)
-	ensure.True(t, ok)
-	ensure.DeepEqual(t, ure.Actual, http.StatusNotFound)
+	var ure *mailgun.UnexpectedResponseError
+	require.ErrorAs(t, err, &ure)
+	require.Equal(t, http.StatusNotFound, ure.Actual)
 }
 
 func TestCreateDeleteComplaint(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
 	var hasComplaint = func(email string) bool {
 		t.Logf("hasComplaint: %s\n", email)
-		it := mg.ListComplaints(nil)
-		ensure.Nil(t, it.Err())
+		it := mg.ListComplaints(testDomain, nil)
+		require.NoError(t, it.Err())
 
-		var page []mailgun.Complaint
+		var page []mtypes.Complaint
 		for it.Next(ctx, &page) {
 			for _, complaint := range page {
 				t.Logf("Complaint Address: %s\n", complaint.Address)
@@ -60,25 +65,27 @@ func TestCreateDeleteComplaint(t *testing.T) {
 	}
 
 	randomMail := strings.ToLower(randomString(64, "")) + "@example.com"
-	ensure.False(t, hasComplaint(randomMail))
+	require.False(t, hasComplaint(randomMail))
 
-	ensure.Nil(t, mg.CreateComplaint(ctx, randomMail))
-	ensure.True(t, hasComplaint(randomMail))
-	ensure.Nil(t, mg.DeleteComplaint(ctx, randomMail))
-	ensure.False(t, hasComplaint(randomMail))
+	require.NoError(t, mg.CreateComplaint(ctx, testDomain, randomMail))
+	require.True(t, hasComplaint(randomMail))
+	require.NoError(t, mg.DeleteComplaint(ctx, testDomain, randomMail))
+	require.False(t, hasComplaint(randomMail))
 }
 
 func TestCreateDeleteComplaintList(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
 	var hasComplaint = func(email string) bool {
 		t.Logf("hasComplaint: %s\n", email)
-		it := mg.ListComplaints(nil)
-		ensure.Nil(t, it.Err())
+		it := mg.ListComplaints(testDomain, nil)
+		require.NoError(t, it.Err())
 
-		var page []mailgun.Complaint
+		var page []mtypes.Complaint
 		for it.Next(ctx, &page) {
 			for _, complaint := range page {
 				t.Logf("Complaint Address: %s\n", complaint.Address)
@@ -96,12 +103,11 @@ func TestCreateDeleteComplaintList(t *testing.T) {
 		strings.ToLower(randomString(64, "")) + "@example3.com",
 	}
 
-	ensure.Nil(t, mg.CreateComplaints(ctx, addresses))
+	require.NoError(t, mg.CreateComplaints(ctx, testDomain, addresses))
 
 	for _, address := range addresses {
-		ensure.True(t, hasComplaint(address))
-		ensure.Nil(t, mg.DeleteComplaint(ctx, address))
-		ensure.False(t, hasComplaint(address))
+		require.True(t, hasComplaint(address))
+		require.NoError(t, mg.DeleteComplaint(ctx, testDomain, address))
+		require.False(t, hasComplaint(address))
 	}
-
 }

@@ -6,76 +6,80 @@ import (
 	"testing"
 	"time"
 
-	"github.com/facebookgo/ensure"
-	"github.com/mailgun/mailgun-go/v4"
-	"github.com/mailgun/mailgun-go/v4/events"
+	"github.com/mailgun/mailgun-go/v5"
+	"github.com/mailgun/mailgun-go/v5/events"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEventIteratorGetNext(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
 
-	it := mg.ListEvents(&mailgun.ListEventOptions{Limit: 5})
+	it := mg.ListEvents(testDomain, &mailgun.ListEventOptions{Limit: 5})
 
-	var firstPage, secondPage, previousPage []mailgun.Event
+	var firstPage, secondPage, previousPage []events.Event
 	var ctx = context.Background()
 
-	ensure.True(t, it.Next(ctx, &firstPage))
-	ensure.True(t, it.Paging.Next != "")
-	ensure.True(t, len(firstPage) != 0)
+	require.True(t, it.Next(ctx, &firstPage))
+	require.NotEqual(t, "", it.Paging.Next)
+	require.True(t, len(firstPage) != 0)
 	firstIterator := *it
 
-	ensure.True(t, it.Next(ctx, &secondPage))
-	ensure.True(t, len(secondPage) != 0)
+	require.True(t, it.Next(ctx, &secondPage))
+	require.True(t, len(secondPage) != 0)
 
 	// Pages should be different
-	ensure.NotDeepEqual(t, firstPage, secondPage)
-	ensure.True(t, firstIterator.Paging.Next != it.Paging.Next)
-	ensure.True(t, firstIterator.Paging.Previous != it.Paging.Previous)
-	ensure.Nil(t, it.Err())
+	require.NotEqual(t, firstPage, secondPage)
+	require.NotEqual(t, firstIterator.Paging.Next, it.Paging.Next)
+	require.NotEqual(t, firstIterator.Paging.Previous, it.Paging.Previous)
+	require.NoError(t, it.Err())
 
 	// Previous()
-	ensure.True(t, it.First(ctx, &firstPage))
-	ensure.True(t, it.Next(ctx, &secondPage))
+	require.True(t, it.First(ctx, &firstPage))
+	require.True(t, it.Next(ctx, &secondPage))
 
-	ensure.True(t, it.Previous(ctx, &previousPage))
-	ensure.True(t, len(previousPage) != 0)
-	ensure.DeepEqual(t, previousPage[0].GetID(), firstPage[0].GetID())
+	require.True(t, it.Previous(ctx, &previousPage))
+	require.True(t, len(previousPage) != 0)
+	require.Equal(t, previousPage[0].GetID(), firstPage[0].GetID())
 
 	// First()
-	ensure.True(t, it.First(ctx, &firstPage))
-	ensure.True(t, len(firstPage) != 0)
+	require.True(t, it.First(ctx, &firstPage))
+	require.True(t, len(firstPage) != 0)
 
 	// Calling first resets the iterator to the first page
-	ensure.True(t, it.Next(ctx, &secondPage))
-	ensure.NotDeepEqual(t, firstPage, secondPage)
+	require.True(t, it.Next(ctx, &secondPage))
+	require.NotEqual(t, firstPage, secondPage)
 
 	// Last()
-	var lastPage []mailgun.Event
-	ensure.True(t, it.Next(ctx, &firstPage))
-	ensure.True(t, len(firstPage) != 0)
+	var lastPage []events.Event
+	require.True(t, it.Next(ctx, &firstPage))
+	require.True(t, len(firstPage) != 0)
 
 	// Calling Last() is invalid unless you first use First() or Next()
-	ensure.True(t, it.Last(ctx, &lastPage))
-	ensure.True(t, len(lastPage) != 0)
+	require.True(t, it.Last(ctx, &lastPage))
+	require.True(t, len(lastPage) != 0)
 }
 
 func TestEventPoller(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
 
 	// Very short poll interval
-	it := mg.PollEvents(&mailgun.ListEventOptions{
+	it := mg.PollEvents(testDomain, &mailgun.ListEventOptions{
 		// Only events with a timestamp after this date/time will be returned
 		Begin: time.Now().Add(time.Second * -3),
 		// How often we poll the api for new events
 		PollInterval: time.Second * 4})
 
-	eventChan := make(chan mailgun.Event, 1)
+	eventChan := make(chan events.Event, 1)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() {
 		// Poll until our email event arrives
-		var page []mailgun.Event
+		var page []events.Event
 		for it.Poll(ctx, &page) {
 			for _, e := range page {
 				eventChan <- e
@@ -85,11 +89,11 @@ func TestEventPoller(t *testing.T) {
 	}()
 
 	// Send an email
-	m := mg.NewMessage("root@"+testDomain, "Subject", "Text Body", "user@"+testDomain)
-	msg, id, err := mg.Send(ctx, m)
-	ensure.Nil(t, err)
+	m := mailgun.NewMessage(testDomain, "root@"+testDomain, "Subject", "Text Body", "user@"+testDomain)
+	resp, err := mg.Send(ctx, m)
+	require.NoError(t, err)
 
-	t.Logf("New Email: %s Id: %s\n", msg, id)
+	t.Logf("New Email: %s ID: %s\n", resp.Message, resp.ID)
 
 	var accepted *events.Accepted
 	for e := range eventChan {
@@ -97,25 +101,25 @@ func TestEventPoller(t *testing.T) {
 		case *events.Accepted:
 			t.Logf("Accepted Event: %s - %v", event.Message.Headers.MessageID, event.GetTimestamp())
 			// If we find our accepted email event
-			if id == ("<" + event.Message.Headers.MessageID + ">") {
+			if resp.ID == ("<" + event.Message.Headers.MessageID + ">") {
 				accepted = event
 				cancel()
 			}
 		}
 	}
 	// Ensure we found our email
-	ensure.NotNil(t, it.Err())
-	ensure.True(t, accepted != nil)
-	ensure.DeepEqual(t, accepted.Recipient, "user@"+testDomain)
+	require.NotNil(t, it.Err())
+	require.NotNil(t, accepted)
+	assert.Equal(t, "user@"+testDomain, accepted.Recipient)
 }
 
-func ExampleMailgunImpl_ListEvents() {
-	mg := mailgun.NewMailgun("your-domain.com", "your-api-key")
-	mg.SetAPIBase(server.URL())
+func ExampleMailgun_ListEvents() {
+	mg := mailgun.NewMailgun("your-api-key")
+	_ = mg.SetAPIBase(server.URL())
 
-	it := mg.ListEvents(&mailgun.ListEventOptions{Limit: 100})
+	it := mg.ListEvents("your-domain.com", &mailgun.ListEventOptions{Limit: 100})
 
-	var page []mailgun.Event
+	var page []events.Event
 
 	// The entire operation should not take longer than 30 seconds
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
@@ -125,7 +129,7 @@ func ExampleMailgunImpl_ListEvents() {
 	for it.Next(ctx, &page) {
 		for _, e := range page {
 			// You can access some fields via the interface
-			//fmt.Printf("Event: '%s' TimeStamp: '%s'\n", e.GetName(), e.GetTimestamp())
+			// fmt.Printf("Event: '%s' TimeStamp: '%s'\n", e.GetName(), e.GetTimestamp())
 
 			// and you can act upon each event by type
 			switch event := e.(type) {

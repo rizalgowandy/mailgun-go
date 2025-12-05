@@ -4,83 +4,59 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/mailgun/mailgun-go/v4"
-	"github.com/mailgun/mailgun-go/v4/events"
+	"github.com/mailgun/mailgun-go/v5"
+	"github.com/mailgun/mailgun-go/v5/events"
+	"github.com/mailgun/mailgun-go/v5/mtypes"
 )
 
-func ExampleMailgunImpl_ValidateEmail() {
-	v := mailgun.NewEmailValidator("my_public_validation_api_key")
+func ExampleMailgun_ValidateEmail() {
+	mg := mailgun.NewMailgun("my_api_key")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	ev, err := v.ValidateEmail(ctx, "joe@example.com", false)
+	ev, err := mg.ValidateEmail(ctx, "joe@example.com", false)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
-	if !ev.IsValid {
-		log.Fatal("Expected valid e-mail address")
-	}
-	log.Printf("Parts local_part=%s domain=%s display_name=%s", ev.Parts.LocalPart, ev.Parts.Domain, ev.Parts.DisplayName)
 	if ev.DidYouMean != "" {
 		log.Printf("The address is syntactically valid, but perhaps has a typo.")
 		log.Printf("Did you mean %s instead?", ev.DidYouMean)
 	}
 }
 
-func ExampleMailgunImpl_ParseAddresses() {
-	v := mailgun.NewEmailValidator("my_public_validation_api_key")
+func ExampleMailgun_UpdateMailingList() {
+	mg := mailgun.NewMailgun("my_api_key")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	addressesThatParsed, unparsableAddresses, err := v.ParseAddresses(ctx, "Alice <alice@example.com>", "bob@example.com", "example.com")
-	if err != nil {
-		log.Fatal(err)
-	}
-	hittest := map[string]bool{
-		"Alice <alice@example.com>": true,
-		"bob@example.com":           true,
-	}
-	for _, a := range addressesThatParsed {
-		if !hittest[a] {
-			log.Fatalf("Expected %s to be parsable", a)
-		}
-	}
-	if len(unparsableAddresses) != 1 {
-		log.Fatalf("Expected 1 address to be unparsable; got %d", len(unparsableAddresses))
-	}
-}
-
-func ExampleMailgunImpl_UpdateList() {
-	mg := mailgun.NewMailgun("example.com", "my_api_key")
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-
-	_, err := mg.UpdateMailingList(ctx, "joe-stat@example.com", mailgun.MailingList{
+	_, err := mg.UpdateMailingList(ctx, "joe-stat@example.com", mtypes.MailingList{
 		Name:        "Joe Stat",
 		Description: "Joe's status report list",
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 }
 
-func ExampleMailgunImpl_Send_constructed() {
-	mg := mailgun.NewMailgun("example.com", "my_api_key")
+func ExampleMailgun_Send_constructed() {
+	mg := mailgun.NewMailgun("my_api_key")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	m := mg.NewMessage(
+	m := mailgun.NewMessage(
+		"example.com",
 		"Excited User <me@example.com>",
 		"Hello World",
 		"Testing some Mailgun Awesomeness!",
@@ -89,15 +65,16 @@ func ExampleMailgunImpl_Send_constructed() {
 	)
 	m.SetTracking(true)
 	m.SetDeliveryTime(time.Now().Add(24 * time.Hour))
-	m.SetHtml("<html><body><h1>Testing some Mailgun Awesomeness!!</h1></body></html>")
-	_, id, err := mg.Send(ctx, m)
+	m.SetHTML("<html><body><h1>Testing some Mailgun Awesomeness!!</h1></body></html>")
+	resp, err := mg.Send(ctx, m)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
-	log.Printf("Message id=%s", id)
+	log.Printf("Message id=%s", resp.ID)
 }
 
-func ExampleMailgunImpl_Send_mime() {
+func ExampleMailgun_Send_mime() {
 	exampleMime := `Content-Type: text/plain; charset="ascii"
 Subject: Joe's Example Subject
 From: Joe Example <joe@example.com>
@@ -111,33 +88,35 @@ Testing some Mailgun MIME awesomeness!
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	mg := mailgun.NewMailgun("example.com", "my_api_key")
-	m := mg.NewMIMEMessage(ioutil.NopCloser(strings.NewReader(exampleMime)), "bargle.garf@example.com")
-	_, id, err := mg.Send(ctx, m)
+	mg := mailgun.NewMailgun("my_api_key")
+	m := mailgun.NewMIMEMessage("example.com", io.NopCloser(strings.NewReader(exampleMime)), "bargle.garf@example.com")
+	resp, err := mg.Send(ctx, m)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
-	log.Printf("Message id=%s", id)
+	log.Printf("Message id=%s", resp.ID)
 }
 
-func ExampleMailgunImpl_GetRoutes() {
-	mg := mailgun.NewMailgun("example.com", "my_api_key")
+func ExampleMailgun_ListRoutes() {
+	mg := mailgun.NewMailgun("my_api_key")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
 	it := mg.ListRoutes(nil)
-	var page []mailgun.Route
+	var page []mtypes.Route
 	for it.Next(ctx, &page) {
 		for _, r := range page {
 			log.Printf("Route pri=%d expr=%s desc=%s", r.Priority, r.Expression, r.Description)
 		}
 	}
 	if it.Err() != nil {
-		log.Fatal(it.Err())
+		log.Println(it.Err())
+		return
 	}
 }
 
-func ExampleMailgunImpl_VerifyWebhookSignature() {
+func ExampleMailgun_VerifyWebhookSignature() {
 	// Create an instance of the Mailgun Client
 	mg, err := mailgun.NewMailgunFromEnv()
 	if err != nil {
@@ -146,8 +125,7 @@ func ExampleMailgunImpl_VerifyWebhookSignature() {
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-
-		var payload mailgun.WebhookPayload
+		var payload mtypes.WebhookPayload
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			fmt.Printf("decode JSON error: %s", err)
 			w.WriteHeader(http.StatusNotAcceptable)
@@ -171,7 +149,7 @@ func ExampleMailgunImpl_VerifyWebhookSignature() {
 
 		// Parse the raw event to extract the
 
-		e, err := mailgun.ParseEvent(payload.EventData)
+		e, err := events.ParseEvent(payload.EventData)
 		if err != nil {
 			fmt.Printf("parse event error: %s\n", err)
 			return

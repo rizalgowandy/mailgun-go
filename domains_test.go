@@ -5,46 +5,53 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/facebookgo/ensure"
-	"github.com/mailgun/mailgun-go/v4"
+	"github.com/mailgun/mailgun-go/v5"
+	"github.com/mailgun/mailgun-go/v5/mtypes"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
-	testDomain = "mailgun.test"
-	testKey    = "api-fake-key"
+	testDomain            = "mailgun.test"
+	testKey               = "api-fake-key"
+	testWebhookSigningKey = "webhook-signing-key"
 )
 
 func TestListDomains(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
 	it := mg.ListDomains(nil)
-	var page []mailgun.Domain
+	var page []mtypes.Domain
 	for it.Next(ctx, &page) {
 		for _, d := range page {
 			t.Logf("TestListDomains: %#v\n", d)
 		}
 	}
 	t.Logf("TestListDomains: %d domains retrieved\n", it.TotalCount)
-	ensure.Nil(t, it.Err())
-	ensure.True(t, it.TotalCount != 0)
+	require.NoError(t, it.Err())
+	assert.True(t, it.TotalCount != 0)
 }
 
 func TestGetSingleDomain(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
 	it := mg.ListDomains(nil)
-	var page []mailgun.Domain
-	ensure.True(t, it.Next(ctx, &page))
-	ensure.Nil(t, it.Err())
+	var page []mtypes.Domain
+	require.True(t, it.Next(ctx, &page))
+	require.NoError(t, it.Err())
 
-	dr, err := mg.GetDomain(ctx, page[0].Name)
-	ensure.Nil(t, err)
-	ensure.DeepEqual(t, len(dr.ReceivingDNSRecords) != 0, true)
-	ensure.DeepEqual(t, len(dr.SendingDNSRecords) != 0, true)
+	dr, err := mg.GetDomain(ctx, page[0].Name, nil)
+	require.NoError(t, err)
+	require.True(t, len(dr.ReceivingDNSRecords) != 0)
+	require.True(t, len(dr.SendingDNSRecords) != 0)
 
 	t.Logf("TestGetSingleDomain: %#v\n", dr)
 	for _, rxd := range dr.ReceivingDNSRecords {
@@ -56,134 +63,159 @@ func TestGetSingleDomain(t *testing.T) {
 }
 
 func TestGetSingleDomainNotExist(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
 
 	ctx := context.Background()
-	_, err := mg.GetDomain(ctx, "unknown.domain")
+	_, err = mg.GetDomain(ctx, "unknown.domain", nil)
 	if err == nil {
 		t.Fatal("Did not expect a domain to exist")
 	}
-	ure, ok := err.(*mailgun.UnexpectedResponseError)
-	ensure.True(t, ok)
-	ensure.DeepEqual(t, ure.Actual, http.StatusNotFound)
+	var ure *mailgun.UnexpectedResponseError
+	require.ErrorAs(t, err, &ure)
+	require.Equal(t, http.StatusNotFound, ure.Actual)
 }
 
 func TestAddUpdateDeleteDomain(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
 	// First, we need to add the domain.
-	_, err := mg.CreateDomain(ctx, "mx.mailgun.test",
-		&mailgun.CreateDomainOptions{SpamAction: mailgun.SpamActionTag, Password: "supersecret", WebScheme: "http"})
-	ensure.Nil(t, err)
+	_, err = mg.CreateDomain(ctx, "mx.mailgun.test",
+		&mailgun.CreateDomainOptions{SpamAction: mtypes.SpamActionTag, Password: "supersecret", WebScheme: "http"})
+	require.NoError(t, err)
 
 	// Then, we update it.
 	err = mg.UpdateDomain(ctx, "mx.mailgun.test",
 		&mailgun.UpdateDomainOptions{WebScheme: "https"})
-	ensure.Nil(t, err)
+	require.NoError(t, err)
 
 	// Next, we delete it.
-	ensure.Nil(t, mg.DeleteDomain(ctx, "mx.mailgun.test"))
-}
-
-func TestDomainConnection(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
-	ctx := context.Background()
-
-	info, err := mg.GetDomainConnection(ctx, testDomain)
-	ensure.Nil(t, err)
-
-	ensure.DeepEqual(t, info.RequireTLS, true)
-	ensure.DeepEqual(t, info.SkipVerification, true)
-
-	info.RequireTLS = false
-	err = mg.UpdateDomainConnection(ctx, testDomain, info)
-	ensure.Nil(t, err)
-
-	info, err = mg.GetDomainConnection(ctx, testDomain)
-	ensure.Nil(t, err)
-	ensure.DeepEqual(t, info.RequireTLS, false)
-	ensure.DeepEqual(t, info.SkipVerification, true)
-}
-
-func TestDomainTracking(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
-	ctx := context.Background()
-
-	info, err := mg.GetDomainTracking(ctx, testDomain)
-	ensure.Nil(t, err)
-
-	ensure.DeepEqual(t, info.Unsubscribe.Active, false)
-	ensure.DeepEqual(t, len(info.Unsubscribe.HTMLFooter) != 0, true)
-	ensure.DeepEqual(t, len(info.Unsubscribe.TextFooter) != 0, true)
-	ensure.DeepEqual(t, info.Click.Active, true)
-	ensure.DeepEqual(t, info.Open.Active, true)
-
-	// Click Tracking
-	err = mg.UpdateClickTracking(ctx, testDomain, "no")
-	ensure.Nil(t, err)
-
-	info, err = mg.GetDomainTracking(ctx, testDomain)
-	ensure.Nil(t, err)
-	ensure.DeepEqual(t, info.Click.Active, false)
-
-	// Open Tracking
-	err = mg.UpdateOpenTracking(ctx, testDomain, "no")
-	ensure.Nil(t, err)
-
-	info, err = mg.GetDomainTracking(ctx, testDomain)
-	ensure.Nil(t, err)
-	ensure.DeepEqual(t, info.Open.Active, false)
-
-	// Unsubscribe
-	err = mg.UpdateUnsubscribeTracking(ctx, testDomain, "yes", "<h2>Hi</h2>", "Hi")
-	ensure.Nil(t, err)
-
-	info, err = mg.GetDomainTracking(ctx, testDomain)
-	ensure.Nil(t, err)
-	ensure.DeepEqual(t, info.Unsubscribe.Active, true)
-	ensure.DeepEqual(t, info.Unsubscribe.HTMLFooter, "<h2>Hi</h2>")
-	ensure.DeepEqual(t, info.Unsubscribe.TextFooter, "Hi")
+	require.NoError(t, mg.DeleteDomain(ctx, "mx.mailgun.test"))
 }
 
 func TestDomainVerify(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
-	_, err := mg.VerifyDomain(ctx, testDomain)
-	ensure.Nil(t, err)
+	_, err = mg.VerifyDomain(ctx, testDomain)
+	require.NoError(t, err)
 }
 
-func TestDomainVerifyAndReturn(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+func TestCreateDomainWithExtendedOptions(t *testing.T) {
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
-	_, err := mg.VerifyAndReturnDomain(ctx, testDomain)
-	ensure.Nil(t, err)
+	// Test creating domain with all extended options
+	messageTTL := 86400
+	_, err = mg.CreateDomain(ctx, "extended.mailgun.test",
+		&mailgun.CreateDomainOptions{
+			SpamAction:             mtypes.SpamActionTag,
+			Password:               "supersecret",
+			WebScheme:              "https",
+			Wildcard:               true,
+			ForceDKIMAuthority:     true,
+			DKIMKeySize:            2048,
+			ArchiveTo:              "https://archive.example.com/messages",
+			DKIMHostName:           "dkim.extended.mailgun.test",
+			DKIMSelector:           "mailgun",
+			ForceRootDKIMHost:      false,
+			EncryptIncomingMessage: true,
+			PoolID:                 "pool123",
+			RequireTLS:             true,
+			SkipVerification:       false,
+			WebPrefix:              "tracking",
+			MessageTTL:             messageTTL,
+		})
+	require.NoError(t, err)
+
+	// Verify the domain was created correctly in the mock by checking the stored values
+	domains := server.DomainList()
+	var found bool
+	for _, dc := range domains {
+		if dc.Domain.Name != "extended.mailgun.test" {
+			continue
+		}
+		found = true
+		assert.Equal(t, mtypes.SpamActionTag, dc.Domain.SpamAction)
+		assert.Equal(t, "https", dc.Domain.WebScheme)
+		assert.Equal(t, true, dc.Domain.Wildcard)
+		assert.Equal(t, "https://archive.example.com/messages", dc.Domain.ArchiveTo)
+		assert.Equal(t, "dkim.extended.mailgun.test", dc.Domain.DKIMHost)
+		assert.Equal(t, true, dc.Domain.EncryptIncomingMessage)
+		assert.Equal(t, true, dc.Domain.RequireTLS)
+		assert.Equal(t, false, dc.Domain.SkipVerification)
+		assert.Equal(t, "tracking", dc.Domain.WebPrefix)
+		assert.Equal(t, 86400, dc.Domain.MessageTTL)
+		break
+	}
+	assert.True(t, found, "Domain should exist in mock server")
+
+	// Clean up
+	require.NoError(t, mg.DeleteDomain(ctx, "extended.mailgun.test"))
 }
 
-func TestDomainDkimSelector(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
+func TestUpdateDomainWithExtendedOptions(t *testing.T) {
+	mg := mailgun.NewMailgun(testKey)
+	err := mg.SetAPIBase(server.URL())
+	require.NoError(t, err)
+
 	ctx := context.Background()
 
-	// Update Domain DKIM selector
-	err := mg.UpdateDomainDkimSelector(ctx, testDomain, "gotest")
-	ensure.Nil(t, err)
-}
+	// First create a domain
+	_, err = mg.CreateDomain(ctx, "update-extended.mailgun.test",
+		&mailgun.CreateDomainOptions{SpamAction: mtypes.SpamActionTag, Password: "supersecret"})
+	require.NoError(t, err)
 
-func TestDomainTrackingWebPrefix(t *testing.T) {
-	mg := mailgun.NewMailgun(testDomain, testKey)
-	mg.SetAPIBase(server.URL())
-	ctx := context.Background()
+	// Update with extended options
+	requireTLS := true
+	skipVerification := false
+	useAutoSecurity := true
+	messageTTL := 172800
 
-	// Update Domain Tracking Web Prefix
-	err := mg.UpdateDomainTrackingWebPrefix(ctx, testDomain, "gotest")
-	ensure.Nil(t, err)
+	err = mg.UpdateDomain(ctx, "update-extended.mailgun.test",
+		&mailgun.UpdateDomainOptions{
+			WebScheme:                  "https",
+			WebPrefix:                  "email",
+			RequireTLS:                 &requireTLS,
+			SkipVerification:           &skipVerification,
+			UseAutomaticSenderSecurity: &useAutoSecurity,
+			ArchiveTo:                  "https://archive.example.com/messages",
+			MailFromHost:               "mail.update-extended.mailgun.test",
+			MessageTTL:                 &messageTTL,
+		})
+	require.NoError(t, err)
+
+	// Verify the domain was updated correctly in the mock by checking the stored values
+	domains := server.DomainList()
+	var found bool
+	for _, dc := range domains {
+		if dc.Domain.Name != "update-extended.mailgun.test" {
+			continue
+		}
+		found = true
+		assert.Equal(t, "https", dc.Domain.WebScheme)
+		assert.Equal(t, "email", dc.Domain.WebPrefix)
+		assert.Equal(t, true, dc.Domain.RequireTLS)
+		assert.Equal(t, false, dc.Domain.SkipVerification)
+		assert.Equal(t, true, dc.Domain.UseAutomaticSenderSecurity)
+		assert.Equal(t, "https://archive.example.com/messages", dc.Domain.ArchiveTo)
+		assert.Equal(t, "mail.update-extended.mailgun.test", dc.Domain.MailFromHost)
+		assert.Equal(t, 172800, dc.Domain.MessageTTL)
+		break
+	}
+	assert.True(t, found, "Domain should exist in mock server")
+
+	// Clean up
+	require.NoError(t, mg.DeleteDomain(ctx, "update-extended.mailgun.test"))
 }

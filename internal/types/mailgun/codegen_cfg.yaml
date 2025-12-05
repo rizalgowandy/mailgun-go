@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/HEAD/configuration-schema.json
+package: mailgun # rename to mgs(Mailgun Send)?
+output: ./internal/types/mailgun/model.gen.go
+generate:
+  models: true
+  client: false
+
+compatibility:
+  disable-required-readonly-as-pointer: true
+
+output-options:
+  prefer-skip-optional-pointer-on-container-types: true
+  name-normalizer: ToCamelCaseWithInitialisms
+  additional-initialisms:
+    - IDs
+    - IPs

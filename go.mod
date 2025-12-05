@@ -1,12 +1,20 @@
-module github.com/mailgun/mailgun-go/v4
+module github.com/mailgun/mailgun-go/v5
 
-go 1.13
+go 1.22
 
 require (
-	github.com/facebookgo/ensure v0.0.0-20160127193407-b4ab57deab51
-	github.com/facebookgo/stack v0.0.0-20160209184415-751773369052 // indirect
-	github.com/facebookgo/subset v0.0.0-20150612182917-8dac2c3c4870 // indirect
-	github.com/go-chi/chi/v5 v5.0.8
-	github.com/json-iterator/go v1.1.10
-	github.com/pkg/errors v0.8.1
+	github.com/go-chi/chi/v5 v5.2.3
+	github.com/google/uuid v1.6.0
+	github.com/json-iterator/go v1.1.12
+	github.com/mailgun/errors v0.4.0
+	github.com/oapi-codegen/runtime v1.1.2
+	github.com/stretchr/testify v1.11.1
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
+	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

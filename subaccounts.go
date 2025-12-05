@@ -2,7 +2,10 @@ package mailgun
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+
+	"github.com/mailgun/mailgun-go/v5/mtypes"
 )
 
 type ListSubaccountsOptions struct {
@@ -13,7 +16,7 @@ type ListSubaccountsOptions struct {
 }
 
 type SubaccountsIterator struct {
-	subaccountsListResponse
+	mtypes.ListSubaccountsResponse
 
 	mg        Mailgun
 	limit     int
@@ -25,24 +28,8 @@ type SubaccountsIterator struct {
 	err       error
 }
 
-// A Subaccount structure holds information about a subaccount.
-type Subaccount struct {
-	Id     string `json:"id"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
-}
-
-type SubaccountResponse struct {
-	Item Subaccount `json:"subaccount"`
-}
-
-type subaccountsListResponse struct {
-	Items []Subaccount `json:"subaccounts"`
-	Total int          `json:"total"`
-}
-
 // ListSubaccounts retrieves a set of subaccount linked to the primary Mailgun account.
-func (mg *MailgunImpl) ListSubaccounts(opts *ListSubaccountsOptions) *SubaccountsIterator {
+func (mg *Client) ListSubaccounts(opts *ListSubaccountsOptions) *SubaccountsIterator {
 	r := newHTTPRequest(generateSubaccountsApiUrl(mg))
 	r.setClient(mg.client)
 	r.setBasicAuth(basicAuthUser, mg.APIKey())
@@ -63,7 +50,7 @@ func (mg *MailgunImpl) ListSubaccounts(opts *ListSubaccountsOptions) *Subaccount
 	return &SubaccountsIterator{
 		mg:                      mg,
 		url:                     generateSubaccountsApiUrl(mg),
-		subaccountsListResponse: subaccountsListResponse{Total: -1},
+		ListSubaccountsResponse: mtypes.ListSubaccountsResponse{Total: -1},
 		limit:                   limit,
 		skip:                    skip,
 		sortArray:               sortArray,
@@ -84,7 +71,7 @@ func (ri *SubaccountsIterator) Offset() int {
 // Next retrieves the next page of items from the api. Returns false when there
 // no more pages to retrieve or if there was an error. Use `.Err()` to retrieve
 // the error
-func (ri *SubaccountsIterator) Next(ctx context.Context, items *[]Subaccount) bool {
+func (ri *SubaccountsIterator) Next(ctx context.Context, items *[]mtypes.Subaccount) bool {
 	if ri.err != nil {
 		return false
 	}
@@ -94,20 +81,20 @@ func (ri *SubaccountsIterator) Next(ctx context.Context, items *[]Subaccount) bo
 		return false
 	}
 
-	cpy := make([]Subaccount, len(ri.Items))
+	cpy := make([]mtypes.Subaccount, len(ri.Items))
 	copy(cpy, ri.Items)
 	*items = cpy
 	if len(ri.Items) == 0 {
 		return false
 	}
-	ri.offset = ri.offset + len(ri.Items)
+	ri.offset += len(ri.Items)
 	return true
 }
 
 // First retrieves the first page of items from the api. Returns false if there
 // was an error. It also sets the iterator object to the first page.
 // Use `.Err()` to retrieve the error.
-func (ri *SubaccountsIterator) First(ctx context.Context, items *[]Subaccount) bool {
+func (ri *SubaccountsIterator) First(ctx context.Context, items *[]mtypes.Subaccount) bool {
 	if ri.err != nil {
 		return false
 	}
@@ -115,7 +102,7 @@ func (ri *SubaccountsIterator) First(ctx context.Context, items *[]Subaccount) b
 	if ri.err != nil {
 		return false
 	}
-	cpy := make([]Subaccount, len(ri.Items))
+	cpy := make([]mtypes.Subaccount, len(ri.Items))
 	copy(cpy, ri.Items)
 	*items = cpy
 	ri.offset = len(ri.Items)
@@ -126,7 +113,7 @@ func (ri *SubaccountsIterator) First(ctx context.Context, items *[]Subaccount) b
 // Calling Last() is invalid unless you first call First() or Next()
 // Returns false if there was an error. It also sets the iterator object
 // to the last page. Use `.Err()` to retrieve the error.
-func (ri *SubaccountsIterator) Last(ctx context.Context, items *[]Subaccount) bool {
+func (ri *SubaccountsIterator) Last(ctx context.Context, items *[]mtypes.Subaccount) bool {
 	if ri.err != nil {
 		return false
 	}
@@ -144,7 +131,7 @@ func (ri *SubaccountsIterator) Last(ctx context.Context, items *[]Subaccount) bo
 	if ri.err != nil {
 		return false
 	}
-	cpy := make([]Subaccount, len(ri.Items))
+	cpy := make([]mtypes.Subaccount, len(ri.Items))
 	copy(cpy, ri.Items)
 	*items = cpy
 	return true
@@ -153,7 +140,7 @@ func (ri *SubaccountsIterator) Last(ctx context.Context, items *[]Subaccount) bo
 // Previous retrieves the previous page of items from the api. Returns false when there
 // no more pages to retrieve or if there was an error. Use `.Err()` to retrieve
 // the error if any
-func (ri *SubaccountsIterator) Previous(ctx context.Context, items *[]Subaccount) bool {
+func (ri *SubaccountsIterator) Previous(ctx context.Context, items *[]mtypes.Subaccount) bool {
 	if ri.err != nil {
 		return false
 	}
@@ -162,7 +149,7 @@ func (ri *SubaccountsIterator) Previous(ctx context.Context, items *[]Subaccount
 		return false
 	}
 
-	ri.offset = ri.offset - (ri.limit * 2)
+	ri.offset -= ri.limit * 2
 	if ri.offset < 0 {
 		ri.offset = 0
 	}
@@ -171,20 +158,18 @@ func (ri *SubaccountsIterator) Previous(ctx context.Context, items *[]Subaccount
 	if ri.err != nil {
 		return false
 	}
-	cpy := make([]Subaccount, len(ri.Items))
+	cpy := make([]mtypes.Subaccount, len(ri.Items))
 	copy(cpy, ri.Items)
 	*items = cpy
-	if len(ri.Items) == 0 {
-		return false
-	}
-	return true
+
+	return len(ri.Items) != 0
 }
 
 func (ri *SubaccountsIterator) fetch(ctx context.Context, skip, limit int) error {
 	ri.Items = nil
 	r := newHTTPRequest(ri.url)
 	r.setBasicAuth(basicAuthUser, ri.mg.APIKey())
-	r.setClient(ri.mg.Client())
+	r.setClient(ri.mg.HTTPClient())
 
 	if skip != 0 {
 		r.addParameter("skip", strconv.Itoa(skip))
@@ -193,54 +178,58 @@ func (ri *SubaccountsIterator) fetch(ctx context.Context, skip, limit int) error
 		r.addParameter("limit", strconv.Itoa(limit))
 	}
 
-	return getResponseFromJSON(ctx, r, &ri.subaccountsListResponse)
+	return getResponseFromJSON(ctx, r, &ri.ListSubaccountsResponse)
 }
 
 // CreateSubaccount instructs Mailgun to create a new account (Subaccount) that is linked to the primary account.
 // Subaccounts are child accounts that share the same plan and usage allocations as the primary, but have their own
 // assets (sending domains, unique users, API key, SMTP credentials, settings, statistics and site login).
 // All you need is the name of the subaccount.
-func (mg *MailgunImpl) CreateSubaccount(ctx context.Context, subaccountName string) (SubaccountResponse, error) {
+func (mg *Client) CreateSubaccount(ctx context.Context, subaccountName string) (mtypes.SubaccountResponse, error) {
 	r := newHTTPRequest(generateSubaccountsApiUrl(mg))
 	r.setClient(mg.client)
 	r.setBasicAuth(basicAuthUser, mg.APIKey())
 
 	payload := newUrlEncodedPayload()
 	payload.addValue("name", subaccountName)
-	resp := SubaccountResponse{}
+	resp := mtypes.SubaccountResponse{}
 	err := postResponseFromJSON(ctx, r, payload, &resp)
 	return resp, err
 }
 
-// SubaccountDetails retrieves detailed information about subaccount using subaccountId.
-func (mg *MailgunImpl) SubaccountDetails(ctx context.Context, subaccountId string) (SubaccountResponse, error) {
-	r := newHTTPRequest(generateSubaccountsApiUrl(mg) + "/" + subaccountId)
+// GetSubaccount retrieves detailed information about subaccount using subaccountID.
+func (mg *Client) GetSubaccount(ctx context.Context, subaccountID string) (mtypes.SubaccountResponse, error) {
+	r := newHTTPRequest(generateSubaccountsApiUrl(mg) + "/" + subaccountID)
 	r.setClient(mg.client)
 	r.setBasicAuth(basicAuthUser, mg.APIKey())
 
-	var resp SubaccountResponse
+	var resp mtypes.SubaccountResponse
 	err := getResponseFromJSON(ctx, r, &resp)
 	return resp, err
 }
 
 // EnableSubaccount instructs Mailgun to enable subaccount.
-func (mg *MailgunImpl) EnableSubaccount(ctx context.Context, subaccountId string) (SubaccountResponse, error) {
+func (mg *Client) EnableSubaccount(ctx context.Context, subaccountId string) (mtypes.SubaccountResponse, error) {
 	r := newHTTPRequest(generateSubaccountsApiUrl(mg) + "/" + subaccountId + "/" + "enable")
 	r.setClient(mg.client)
 	r.setBasicAuth(basicAuthUser, mg.APIKey())
 
-	resp := SubaccountResponse{}
+	resp := mtypes.SubaccountResponse{}
 	err := postResponseFromJSON(ctx, r, nil, &resp)
 	return resp, err
 }
 
 // DisableSubaccount instructs Mailgun to disable subaccount.
-func (mg *MailgunImpl) DisableSubaccount(ctx context.Context, subaccountId string) (SubaccountResponse, error) {
+func (mg *Client) DisableSubaccount(ctx context.Context, subaccountId string) (mtypes.SubaccountResponse, error) {
 	r := newHTTPRequest(generateSubaccountsApiUrl(mg) + "/" + subaccountId + "/" + "disable")
 	r.setClient(mg.client)
 	r.setBasicAuth(basicAuthUser, mg.APIKey())
 
-	resp := SubaccountResponse{}
+	resp := mtypes.SubaccountResponse{}
 	err := postResponseFromJSON(ctx, r, nil, &resp)
 	return resp, err
+}
+
+func generateSubaccountsApiUrl(m Mailgun) string {
+	return fmt.Sprintf("%s/v5/%s/%s", m.APIBase(), accountsEndpoint, subaccountsEndpoint)
 }

@@ -2,48 +2,38 @@ package mailgun
 
 import (
 	"context"
+	"net/url"
 	"strconv"
+
+	"github.com/mailgun/mailgun-go/v5/mtypes"
 )
 
 const (
 	complaintsEndpoint = "complaints"
 )
 
-// Complaint structures track how many times one of your emails have been marked as spam.
-// the recipient thought your messages were not solicited.
-type Complaint struct {
-	Count     int         `json:"count"`
-	CreatedAt RFC2822Time `json:"created_at"`
-	Address   string      `json:"address"`
-}
-
-type complaintsResponse struct {
-	Paging Paging      `json:"paging"`
-	Items  []Complaint `json:"items"`
-}
-
 // ListComplaints returns a set of spam complaints registered against your domain.
 // Recipients of your messages can click on a link which sends feedback to Mailgun
 // indicating that the message they received is, to them, spam.
-func (mg *MailgunImpl) ListComplaints(opts *ListOptions) *ComplaintsIterator {
-	r := newHTTPRequest(generateApiUrl(mg, complaintsEndpoint))
-	r.setClient(mg.Client())
+func (mg *Client) ListComplaints(domain string, opts *ListOptions) *ComplaintsIterator {
+	r := newHTTPRequest(generateApiV3UrlWithDomain(mg, complaintsEndpoint, domain))
+	r.setClient(mg.HTTPClient())
 	r.setBasicAuth(basicAuthUser, mg.APIKey())
 	if opts != nil {
 		if opts.Limit != 0 {
 			r.addParameter("limit", strconv.Itoa(opts.Limit))
 		}
 	}
-	url, err := r.generateUrlWithParameters()
+	uri, err := r.generateUrlWithParameters()
 	return &ComplaintsIterator{
 		mg:                 mg,
-		complaintsResponse: complaintsResponse{Paging: Paging{Next: url, First: url}},
+		ComplaintsResponse: mtypes.ComplaintsResponse{Paging: mtypes.Paging{Next: uri, First: uri}},
 		err:                err,
 	}
 }
 
 type ComplaintsIterator struct {
-	complaintsResponse
+	mtypes.ComplaintsResponse
 	mg  Mailgun
 	err error
 }
@@ -56,7 +46,7 @@ func (ci *ComplaintsIterator) Err() error {
 // Next retrieves the next page of items from the api. Returns false when there
 // no more pages to retrieve or if there was an error. Use `.Err()` to retrieve
 // the error
-func (ci *ComplaintsIterator) Next(ctx context.Context, items *[]Complaint) bool {
+func (ci *ComplaintsIterator) Next(ctx context.Context, items *[]mtypes.Complaint) bool {
 	if ci.err != nil {
 		return false
 	}
@@ -64,19 +54,17 @@ func (ci *ComplaintsIterator) Next(ctx context.Context, items *[]Complaint) bool
 	if ci.err != nil {
 		return false
 	}
-	cpy := make([]Complaint, len(ci.Items))
+	cpy := make([]mtypes.Complaint, len(ci.Items))
 	copy(cpy, ci.Items)
 	*items = cpy
-	if len(ci.Items) == 0 {
-		return false
-	}
-	return true
+
+	return len(ci.Items) != 0
 }
 
 // First retrieves the first page of items from the api. Returns false if there
 // was an error. It also sets the iterator object to the first page.
 // Use `.Err()` to retrieve the error.
-func (ci *ComplaintsIterator) First(ctx context.Context, items *[]Complaint) bool {
+func (ci *ComplaintsIterator) First(ctx context.Context, items *[]mtypes.Complaint) bool {
 	if ci.err != nil {
 		return false
 	}
@@ -84,7 +72,7 @@ func (ci *ComplaintsIterator) First(ctx context.Context, items *[]Complaint) boo
 	if ci.err != nil {
 		return false
 	}
-	cpy := make([]Complaint, len(ci.Items))
+	cpy := make([]mtypes.Complaint, len(ci.Items))
 	copy(cpy, ci.Items)
 	*items = cpy
 	return true
@@ -94,7 +82,7 @@ func (ci *ComplaintsIterator) First(ctx context.Context, items *[]Complaint) boo
 // Calling Last() is invalid unless you first call First() or Next()
 // Returns false if there was an error. It also sets the iterator object
 // to the last page. Use `.Err()` to retrieve the error.
-func (ci *ComplaintsIterator) Last(ctx context.Context, items *[]Complaint) bool {
+func (ci *ComplaintsIterator) Last(ctx context.Context, items *[]mtypes.Complaint) bool {
 	if ci.err != nil {
 		return false
 	}
@@ -102,7 +90,7 @@ func (ci *ComplaintsIterator) Last(ctx context.Context, items *[]Complaint) bool
 	if ci.err != nil {
 		return false
 	}
-	cpy := make([]Complaint, len(ci.Items))
+	cpy := make([]mtypes.Complaint, len(ci.Items))
 	copy(cpy, ci.Items)
 	*items = cpy
 	return true
@@ -111,7 +99,7 @@ func (ci *ComplaintsIterator) Last(ctx context.Context, items *[]Complaint) bool
 // Previous retrieves the previous page of items from the api. Returns false when there
 // no more pages to retrieve or if there was an error. Use `.Err()` to retrieve
 // the error if any
-func (ci *ComplaintsIterator) Previous(ctx context.Context, items *[]Complaint) bool {
+func (ci *ComplaintsIterator) Previous(ctx context.Context, items *[]mtypes.Complaint) bool {
 	if ci.err != nil {
 		return false
 	}
@@ -122,41 +110,39 @@ func (ci *ComplaintsIterator) Previous(ctx context.Context, items *[]Complaint) 
 	if ci.err != nil {
 		return false
 	}
-	cpy := make([]Complaint, len(ci.Items))
+	cpy := make([]mtypes.Complaint, len(ci.Items))
 	copy(cpy, ci.Items)
 	*items = cpy
-	if len(ci.Items) == 0 {
-		return false
-	}
-	return true
+
+	return len(ci.Items) != 0
 }
 
-func (ci *ComplaintsIterator) fetch(ctx context.Context, url string) error {
+func (ci *ComplaintsIterator) fetch(ctx context.Context, uri string) error {
 	ci.Items = nil
-	r := newHTTPRequest(url)
-	r.setClient(ci.mg.Client())
+	r := newHTTPRequest(uri)
+	r.setClient(ci.mg.HTTPClient())
 	r.setBasicAuth(basicAuthUser, ci.mg.APIKey())
 
-	return getResponseFromJSON(ctx, r, &ci.complaintsResponse)
+	return getResponseFromJSON(ctx, r, &ci.ComplaintsResponse)
 }
 
 // GetComplaint returns a single complaint record filed by a recipient at the email address provided.
 // If no complaint exists, the Complaint instance returned will be empty.
-func (mg *MailgunImpl) GetComplaint(ctx context.Context, address string) (Complaint, error) {
-	r := newHTTPRequest(generateApiUrl(mg, complaintsEndpoint) + "/" + address)
-	r.setClient(mg.Client())
+func (mg *Client) GetComplaint(ctx context.Context, domain, address string) (mtypes.Complaint, error) {
+	r := newHTTPRequest(generateApiV3UrlWithDomain(mg, complaintsEndpoint, domain) + "/" + url.QueryEscape(address))
+	r.setClient(mg.HTTPClient())
 	r.setBasicAuth(basicAuthUser, mg.APIKey())
 
-	var c Complaint
+	var c mtypes.Complaint
 	err := getResponseFromJSON(ctx, r, &c)
 	return c, err
 }
 
 // CreateComplaint registers the specified address as a recipient who has complained of receiving spam
 // from your domain.
-func (mg *MailgunImpl) CreateComplaint(ctx context.Context, address string) error {
-	r := newHTTPRequest(generateApiUrl(mg, complaintsEndpoint))
-	r.setClient(mg.Client())
+func (mg *Client) CreateComplaint(ctx context.Context, domain, address string) error {
+	r := newHTTPRequest(generateApiV3UrlWithDomain(mg, complaintsEndpoint, domain))
+	r.setClient(mg.HTTPClient())
 	r.setBasicAuth(basicAuthUser, mg.APIKey())
 	p := newUrlEncodedPayload()
 	p.addValue("address", address)
@@ -164,9 +150,9 @@ func (mg *MailgunImpl) CreateComplaint(ctx context.Context, address string) erro
 	return err
 }
 
-func (mg *MailgunImpl) CreateComplaints(ctx context.Context, addresses []string) error {
-	r := newHTTPRequest(generateApiUrl(mg, complaintsEndpoint))
-	r.setClient(mg.Client())
+func (mg *Client) CreateComplaints(ctx context.Context, domain string, addresses []string) error {
+	r := newHTTPRequest(generateApiV3UrlWithDomain(mg, complaintsEndpoint, domain))
+	r.setClient(mg.HTTPClient())
 	r.setBasicAuth(basicAuthUser, mg.APIKey())
 
 	body := make([]map[string]string, len(addresses))
@@ -182,9 +168,9 @@ func (mg *MailgunImpl) CreateComplaints(ctx context.Context, addresses []string)
 
 // DeleteComplaint removes a previously registered e-mail address from the list of people who complained
 // of receiving spam from your domain.
-func (mg *MailgunImpl) DeleteComplaint(ctx context.Context, address string) error {
-	r := newHTTPRequest(generateApiUrl(mg, complaintsEndpoint) + "/" + address)
-	r.setClient(mg.Client())
+func (mg *Client) DeleteComplaint(ctx context.Context, domain, address string) error {
+	r := newHTTPRequest(generateApiV3UrlWithDomain(mg, complaintsEndpoint, domain) + "/" + url.QueryEscape(address))
+	r.setClient(mg.HTTPClient())
 	r.setBasicAuth(basicAuthUser, mg.APIKey())
 	_, err := makeDeleteRequest(ctx, r)
 	return err
